@@ -28,6 +28,16 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     elif sys.version_info[0] == 3:
         importlib.reload(mod)
 
+    # Preprocess data if a preprocess function exists in module
+    # Return new arguments for lnpostfn
+    if 'preprocess' in dir(mod) and hasattr(mod.preprocess, '__call__'):
+        newargs = mod.preprocess(rundict, initdict, datadict, priordict,
+                                 fixeddict)
+
+    else:
+        newargs = []
+        
+
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
     if initfromsampler is not None:
@@ -48,10 +58,18 @@ def runmcmc(configfile, nsteps=None, **kwargs):
         for par in isampler.args[0]:
             if par in initdict:
                 initdict[par] = pn[:, isampler.args[0].index(par)]
-    
-    lnprobargs = [initdict.keys(), mod.lnlike, mod.lnprior]
-    lnprobkwargs = {'lnlikeargs': [fixeddict, datadict],
-                    'lnpriorargs': [priordict, ],
+
+    # Prepare list of arguments for lnlike and lnprior function
+    lnlikeargs = [fixeddict, datadict]
+    lnpriorargs = [priordict,]
+
+    # Add new arguments from preprocessing
+    for arglist in [lnlikeargs, lnpriorargs]:
+        arglist.extend(newargs)
+        
+    lnprobargs = [list(initdict.keys()), mod.lnlike, mod.lnprior]
+    lnprobkwargs = {'lnlikeargs': lnlikeargs,
+                    'lnpriorargs': lnpriorargs,
                     'lnlikekwargs': {}}
 
     if rundict['sampler'] == 'emcee':
@@ -79,7 +97,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
         nsteps = rundict['nsteps']
             
     # Starting point.
-    p0 = np.array(initdict.values()).T
+    p0 = np.array(list(initdict.values())).T
 
     print('Doing {} steps of {} MCMC sampler, '
           'using {} walkers in {}-dimensional parameter space'
