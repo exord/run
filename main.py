@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import importlib
 import datetime
@@ -21,7 +22,11 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     # Read lnlike and lnprior functions from specific target module.
     modulename = 'model_{target}_{runid}'.format(**rundict)
     mod = importlib.import_module(modulename)
-    reload(mod)
+
+    if sys.version_info[0] == 2:
+        reload(mod)
+    elif sys.version_info[0] == 3:
+        importlib.reload(mod)
 
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
