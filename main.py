@@ -36,7 +36,6 @@ def runmcmc(configfile, nsteps=None, **kwargs):
 
     else:
         newargs = []
-        
 
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
@@ -66,7 +65,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     # Add new arguments from preprocessing
     for arglist in [lnlikeargs, lnpriorargs]:
         arglist.extend(newargs)
-        
+
     lnprobargs = [list(initdict.keys()), mod.lnlike, mod.lnprior]
     lnprobkwargs = {'lnlikeargs': lnlikeargs,
                     'lnpriorargs': lnpriorargs,
@@ -95,7 +94,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
                         'file or as argument to runmcmc function.')
     elif nsteps is None:
         nsteps = rundict['nsteps']
-            
+
     # Starting point.
     p0 = np.array(list(initdict.values())).T
 
@@ -139,17 +138,17 @@ def continuemcmc(samplerfile, nsteps, newsampler=False):
 
         sampler.run_mcmc(p0, nsteps)
         sampleralgo = 'emcee'
-    elif isinstance(sampler, cobmcmc.ChangeofBasisSampler):        
+    elif isinstance(sampler, cobmcmc.ChangeofBasisSampler):
         sampler.run_mcmc(nsteps)
         sampleralgo = 'cobmcmc'
-    
+
     # Pickle sampler to file
     dump2pickle(sampler, sampleralgo)
     return sampler
 
 
 def dump2pickle(sampler, sampleralgo='emcee'):
-    
+
     if sampleralgo is None:
         sampleralgo = ''
 
@@ -167,7 +166,7 @@ def dump2pickle(sampler, sampleralgo='emcee'):
     # Check if path exists; create if not
     if not os.path.isdir(pickledir):
         os.makedirs(pickledir)
-    
+
     f = open(os.path.join(pickledir,
                           '{target}_{runid}{comm}_{nwalk}walkers_'
                           '{nstep}steps_{sampler}_{date}.dat'.format(
