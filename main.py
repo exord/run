@@ -6,10 +6,13 @@ import datetime
 import pickle
 import time
 
-from .config import read_config
+import emcee
+import cobmcmc
 
 from mcmc_general import lnprob
+from emcee.ptsampler import default_beta_ladder
 
+from .config import read_config
 
 def runmcmc(configfile, nsteps=None, **kwargs):
 
@@ -74,13 +77,31 @@ def runmcmc(configfile, nsteps=None, **kwargs):
                     'lnlikekwargs': {}}
 
     if rundict['sampler'] == 'emcee':
-        import emcee
         a = rundict.pop('a', 2.0)
         sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
                                         lnprob, args=lnprobargs,
                                         kwargs=lnprobkwargs, a=a)
+
+    elif rundict['sampler'] == 'PTSampler':
+        a = rundict.pop('a', 2.0)
+        ntemps = rundict.pop('ntemps', None)
+        tmax = rundict.pop('Tmax', None)
+        
+        # Construct argument lists
+        # for log likelihood
+        loglargs = [list(initdict.keys()), ]
+        loglargs.extend(lnprobkwargs['lnlikeargs'])
+        # and for logprior
+        logpargs = [list(initdict.keys()), ]
+        logpargs.extend(lnprobkwargs['lnpriorargs'])
+        
+        sampler = emcee.PTSampler(ntemps, rundict['nwalkers'], len(priordict),
+                                  logl=mod.lnlike, logp=mod.lnprior,
+                                  Tmax=tmax,
+                                  loglargs=loglargs,
+                                  logpargs=logpargs)
+        
     elif rundict['sampler'] == 'cobmcmc':
-        import cobmcmc
         sampler = cobmcmc.ChangeofBasisSampler(len(priordict), lnprob,
                                                lnprobargs, lnprobkwargs,
                                                startpca=rundict['startpca'],
@@ -92,8 +113,8 @@ def runmcmc(configfile, nsteps=None, **kwargs):
 
     # Number of steps.
     if nsteps is None and 'nsteps' not in rundict:
-        raise TypeError('Number of steps must be given in configuration '
-                        'file or as argument to runmcmc function.')
+        raise ValueError('Number of steps must be given in configuration '
+                         'file or as argument to runmcmc function.')
     elif nsteps is None:
         nsteps = rundict['nsteps']
 
@@ -103,6 +124,12 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     print('Doing {} steps of {} MCMC sampler, '
           'using {} walkers in {}-dimensional parameter space'
           .format(nsteps, rundict['sampler'], p0.shape[0], p0.shape[1]))
+
+    # Special treatment for PTSampler
+    if rundict['sampler'] == 'PTSampler':
+        p0 = np.repeat(p0[np.newaxis, :, :], len(sampler.betas), axis=0)
+        sampler.k = sampler.nwalkers
+        sampler.iterations = nsteps
 
     if counttime:
         ti = time.clock()
@@ -161,10 +188,17 @@ def dump2pickle(sampler, sampleralgo='emcee'):
     if sampleralgo is None:
         sampleralgo = ''
 
+    if isinstance(sampler, emcee.PTSampler):
+        nwalk = sampler.nwalkers
+    elif isinstance(sampler, emcee.EnsembleSampler):
+        nwalk = sampler.k
+    elif isinstance(sampler, cobmcmc.ChangeofBasisSampler):
+        nwalk = 1
+        
     pickledict = {'target': sampler.target,
                   'runid': sampler.runid,
                   'comm': sampler.comment,
-                  'nwalk': sampler.k,
+                  'nwalk': nwalk,
                   'nstep': sampler.iterations,
                   'sampler': sampleralgo,
                   'date': datetime.datetime.today().isoformat()}
