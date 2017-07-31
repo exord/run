@@ -4,6 +4,7 @@ import numpy as np
 import importlib
 import datetime
 import pickle
+import time
 
 from .config import read_config
 
@@ -14,6 +15,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
 
     initfromsampler = kwargs.pop('initsampler', None)
     uselaststep = kwargs.pop('uselaststep', False)
+    counttime = kwargs.pop('time', True)
 
     # Read dictionaries from configuration file
     rundict, initdict, datadict, priordict, fixeddict = read_config(
@@ -102,9 +104,16 @@ def runmcmc(configfile, nsteps=None, **kwargs):
           'using {} walkers in {}-dimensional parameter space'
           .format(nsteps, rundict['sampler'], p0.shape[0], p0.shape[1]))
 
+    if counttime:
+        ti = time.clock()
+        tw = time.time()
     # ## MAIN MCMC RUN ##
     sampler.run_mcmc(p0, nsteps)
 
+    # Add times to sampler
+    sampler.runtime = time.clock() - ti
+    sampler.walltime = time.time() - tw
+    
     sampler.runid = rundict['runid']
     sampler.target = rundict['target']
     sampler.comment = rundict.get('comment', '')
