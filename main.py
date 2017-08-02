@@ -53,7 +53,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
         else:
             # Pick nwalker random samples from chain
             ind = np.random.choice(np.arange(0, isampler.chain.shape[1]),
-                                   size=rundict['nwalkers'], replace=False)
+                                   size=rundict['nwalkers'], replace=True)
             indc = np.random.randint(isampler.chain.shape[0], 
                                      size=rundict['nwalkers']) 
             pn = isampler.chain[indc, ind, :]
@@ -78,9 +78,11 @@ def runmcmc(configfile, nsteps=None, **kwargs):
 
     if rundict['sampler'] == 'emcee':
         a = rundict.pop('a', 2.0)
+        ncpus = rundict.pop('threads', 1)
         sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
                                         lnprob, args=lnprobargs,
-                                        kwargs=lnprobkwargs, a=a)
+                                        kwargs=lnprobkwargs, a=a,
+                                        threads=ncpus)
 
     elif rundict['sampler'] == 'PTSampler':
         a = rundict.pop('a', 2.0)
@@ -150,7 +152,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
         sampler.comment = '_'+sampler.comment
 
     # Pickle sampler to file
-    dump2pickle(sampler, rundict.get('sampler', None))
+    dump2pickle(sampler, rundict.get('sampler', None), multi=ncpus)
     return sampler
 
 
@@ -183,7 +185,7 @@ def continuemcmc(samplerfile, nsteps, newsampler=False):
     return sampler
 
 
-def dump2pickle(sampler, sampleralgo='emcee'):
+def dump2pickle(sampler, sampleralgo='emcee', multi=1):
 
     if sampleralgo is None:
         sampleralgo = ''
@@ -214,6 +216,10 @@ def dump2pickle(sampler, sampleralgo='emcee'):
                           '{target}_{runid}{comm}_{nwalk}walkers_'
                           '{nstep}steps_{sampler}_{date}.dat'.format(
                               **pickledict)), 'wb')
-    pickle.dump(sampler, f)
+
+    if multi>1:
+        pickle.dump([sampler.chain, sampler.lnprobability, sampler.args], f)
+    else:
+        pickle.dump(sampler, f)
     f.close()
     return
