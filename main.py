@@ -181,7 +181,7 @@ def continuemcmc(samplerfile, nsteps, newsampler=False):
         sampleralgo = 'cobmcmc'
 
     # Pickle sampler to file
-    dump2pickle(sampler, sampleralgo)
+    dump2pickle(sampler, sampleralgo, multi=sampler.threads)
     return sampler
 
 
