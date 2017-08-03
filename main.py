@@ -47,21 +47,28 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     if initfromsampler is not None:
         isampler = pickle.load(open(initfromsampler))
 
+        if isinstance(isampler, (emcee.Sampler, cobmcmc.Sampler)):
+            initchain = isampler.chain.copy()
+            ipars = isampler.args[0]
+        elif isinstance(isampler[0], np.ndarray):
+            initchain = isampler[0].copy()
+            ipars = isampler[-1][0]
+            
         if uselaststep:
             # Pick last element from chain
-            pn = isampler.chain[:, -1, :]
+            pn = initchain[:, -1, :]
         else:
             # Pick nwalker random samples from chain
-            ind = np.random.choice(np.arange(0, isampler.chain.shape[1]),
+            ind = np.random.choice(np.arange(0, initchain.shape[1]),
                                    size=rundict['nwalkers'], replace=True)
-            indc = np.random.randint(isampler.chain.shape[0], 
+            indc = np.random.randint(initchain.shape[0], 
                                      size=rundict['nwalkers']) 
-            pn = isampler.chain[indc, ind, :]
+            pn = initchain[indc, ind, :]
 
         # Overwrite values from initdict for those parameters in common.
-        for par in isampler.args[0]:
+        for par in ipars:
             if par in initdict:
-                initdict[par] = pn[:, isampler.args[0].index(par)]
+                initdict[par] = pn[:, ipars.index(par)]
 
     # Prepare list of arguments for lnlike and lnprior function
     lnlikeargs = [fixeddict, datadict]
@@ -218,7 +225,8 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1):
                               **pickledict)), 'wb')
 
     if multi>1:
-        pickle.dump([sampler.chain, sampler.lnprobability, sampler.args], f)
+        pickle.dump([sampler.chain, sampler.lnprobability,
+                     sampler.acceptance_fraction, sampler.args], f)
     else:
         pickle.dump(sampler, f)
     f.close()
