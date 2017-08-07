@@ -48,15 +48,25 @@ def runmcmc(configfile, nsteps=None, **kwargs):
         isampler = pickle.load(open(initfromsampler))
 
         if isinstance(isampler, (emcee.Sampler, cobmcmc.Sampler)):
-            initchain = isampler.chain.copy()
+            initchain = isampler.chain
             ipars = isampler.args[0]
         elif isinstance(isampler[0], np.ndarray):
-            initchain = isampler[0].copy()
+            initchain = isampler[0]
             ipars = isampler[-1][0]
             
         if uselaststep:
-            # Pick last element from chain
-            pn = initchain[:, -1, :]
+            
+            if rundict['nwalkers'] > initchain.shape[0]:
+                raise ValueError('Cannot use last step. Init sampler has less walkers than current sampler.')
+            elif rundict['nwalkers'] == initchain.shape[0]:
+                # Pick last element from chain
+                pn = initchain[:, -1, :]
+            else:
+                # Pick last element from chain for a random subset of walkers
+                ind = np.random.choice(np.arange(0, initchain.shape[0]),
+                                       size=rundict['nwalkers'], replace=False)
+                pn = initchain[ind, -1, :]
+                
         else:
             # Pick nwalker random samples from chain
             ind = np.random.choice(np.arange(0, initchain.shape[1]),
