@@ -52,7 +52,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
             ipars = isampler.args[0]
         elif isinstance(isampler[0], np.ndarray):
             initchain = isampler[0]
-            ipars = isampler[-1][0]
+            ipars = isampler[-2][0]
             
         if uselaststep:
             
@@ -202,7 +202,7 @@ def continuemcmc(samplerfile, nsteps, newsampler=False):
     return sampler
 
 
-def dump2pickle(sampler, sampleralgo='emcee', multi=1):
+def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
 
     if sampleralgo is None:
         sampleralgo = ''
@@ -222,8 +222,11 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1):
                   'sampler': sampleralgo,
                   'date': datetime.datetime.today().isoformat()}
 
-    pickledir = os.path.join(os.getenv('HOME'), 'ExP',
-                             pickledict['target'], 'samplers')
+    if savedir is None:
+        pickledir = os.path.join(os.getenv('HOME'), 'ExP',
+                                pickledict['target'], 'samplers')
+    else:
+        pickledir = savedir
 
     # Check if path exists; create if not
     if not os.path.isdir(pickledir):
@@ -236,7 +239,8 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1):
 
     if multi>1:
         pickle.dump([sampler.chain, sampler.lnprobability,
-                     sampler.acceptance_fraction, sampler.args], f)
+                     sampler.acceptance_fraction, sampler.args,
+                     sampler.kwargs], f)
     else:
         pickle.dump(sampler, f)
     f.close()
