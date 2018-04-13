@@ -81,7 +81,7 @@ def draw_initial_values(input_dict, priordict, nwalkers=1):
     # Create dictionary of initial values
     initial_values = dict.fromkeys(priordict)
 
-    for fullpar in initial_values:
+    for fullpar in priordict:
         obj, par = fullpar.split('_')
         if input_dict[obj][par][1] == 1:
             p0 = priordict[obj+'_'+par].rvs(size=nwalkers)
@@ -104,6 +104,12 @@ def draw_initial_values(input_dict, priordict, nwalkers=1):
             p0  = (np.full(nwalkers, parlist[0]) +
                    np.random.randn(nwalkers) * scale)
             del(scale)
+
+        elif input_dict[obj][par][1] == 3:
+            # Parameter will be marginalised over by likelihood. Remove from
+            # dict
+            del(initial_values[fullpar])
+            continue
         else:
             continue
             # raise ValueError('Ilegal flag for parameter.')
