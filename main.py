@@ -96,7 +96,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     if rundict['sampler'] == 'emcee':
         a = rundict.pop('a', 2.0)
         ncpus = rundict.pop('threads', 1)
-        sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
+        sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(initdict),
                                         lnprob, args=lnprobargs,
                                         kwargs=lnprobkwargs, a=a,
                                         threads=ncpus)
