@@ -14,7 +14,7 @@ from emcee.ptsampler import default_beta_ladder
 
 from .config import read_config
 
-def runmcmc(configfile, nsteps=None, **kwargs):
+def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
 
     initfromsampler = kwargs.pop('initsampler', None)
     uselaststep = kwargs.pop('uselaststep', False)
@@ -33,14 +33,19 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     elif sys.version_info[0] == 3:
         importlib.reload(mod)
 
-    # Preprocess data if a preprocess function exists in module
-    # Return new arguments for lnpostfn
-    if 'preprocess' in dir(mod) and hasattr(mod.preprocess, '__call__'):
-        newargs = mod.preprocess(rundict, initdict, datadict, priordict,
-                                 fixeddict)
-
-    else:
-        newargs = []
+    # Instantaniate model class (pass additional arguments)
+    mymodel = mod.Model(fixeddict, datadict, priordict, **modelargs)
+    
+# =============================================================================
+#     # Preprocess data if a preprocess function exists in module
+#     # Return new arguments for lnpostfn
+#     if 'preprocess' in dir(mod) and hasattr(mod.preprocess, '__call__'):
+#         newargs = mod.preprocess(rundict, initdict, datadict, priordict,
+#                                  fixeddict)
+# 
+#     else:
+#         newargs = []
+# =============================================================================
 
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
@@ -80,52 +85,55 @@ def runmcmc(configfile, nsteps=None, **kwargs):
             if par in initdict:
                 initdict[par] = pn[:, ipars.index(par)]
 
-    # Prepare list of arguments for lnlike and lnprior function
-    lnlikeargs = [fixeddict, datadict]
-    lnpriorargs = [priordict,]
-
-    # Add new arguments from preprocessing
-    for arglist in [lnlikeargs, lnpriorargs]:
-        arglist.extend(newargs)
-
-    lnprobargs = [list(initdict.keys()), mod.lnlike, mod.lnprior]
-    lnprobkwargs = {'lnlikeargs': lnlikeargs,
-                    'lnpriorargs': lnpriorargs,
-                    'lnlikekwargs': {}}
-
+# =============================================================================
+#     # Prepare list of arguments for lnlike and lnprior function
+#     lnlikeargs = [fixeddict, datadict]
+#     lnpriorargs = [priordict,]
+# 
+#     # Add new arguments from preprocessing
+#     for arglist in [lnlikeargs, lnpriorargs]:
+#         arglist.extend(newargs)
+# 
+#     lnprobargs = [list(initdict.keys()), mod.lnlike, mod.lnprior]
+#     lnprobkwargs = {'lnlikeargs': lnlikeargs,
+#                     'lnpriorargs': lnpriorargs,
+#                     'lnlikekwargs': {}}
+# 
+# =============================================================================
+    
     if rundict['sampler'] == 'emcee':
         a = rundict.pop('a', 2.0)
         ncpus = rundict.pop('threads', 1)
         sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
-                                        lnprob, args=lnprobargs,
-                                        kwargs=lnprobkwargs, a=a,
-                                        threads=ncpus)
+                                        mymodel.logpdf, a=a, threads=ncpus)
+        sampler.model = mymodel
 
     elif rundict['sampler'] == 'PTSampler':
         a = rundict.pop('a', 2.0)
         ntemps = rundict.pop('ntemps', None)
         tmax = rundict.pop('Tmax', None)
         
-        # Construct argument lists
-        # for log likelihood
-        loglargs = [list(initdict.keys()), ]
-        loglargs.extend(lnprobkwargs['lnlikeargs'])
-        # and for logprior
-        logpargs = [list(initdict.keys()), ]
-        logpargs.extend(lnprobkwargs['lnpriorargs'])
-        
+# =============================================================================
+#         # Construct argument lists
+#         # for log likelihood
+#         loglargs = [list(initdict.keys()), ]
+#         loglargs.extend(lnprobkwargs['lnlikeargs'])
+#         # and for logprior
+#         logpargs = [list(initdict.keys()), ]
+#         logpargs.extend(lnprobkwargs['lnpriorargs'])
+#         
+# =============================================================================
         sampler = emcee.PTSampler(ntemps, rundict['nwalkers'], len(priordict),
-                                  logl=mod.lnlike, logp=mod.lnprior,
-                                  Tmax=tmax,
-                                  loglargs=loglargs,
-                                  logpargs=logpargs)
+                                  logl=mymodel.lnlike, logp=mymodel.lnprior,
+                                  Tmax=tmax)
         
     elif rundict['sampler'] == 'cobmcmc':
-        sampler = cobmcmc.ChangeofBasisSampler(len(priordict), lnprob,
-                                               lnprobargs, lnprobkwargs,
+        sampler = cobmcmc.ChangeofBasisSampler(len(priordict), mymodel.logpdf,
+                                               [], {},
                                                startpca=rundict['startpca'],
                                                npca=rundict['npca'],
-                                               nupdatepca=rundict['nupdatepca'])
+                                               nupdatepca=rundict['nupdatepca']
+                                               )
 
     else:
         raise NameError('Unknown sampler: {}'.format(rundict['sampler']))
