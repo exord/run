@@ -112,8 +112,15 @@ def draw_initial_values(input_dict, priordict, nwalkers=1):
     
 def read_data(datadict):
     for inst in datadict:
+        # Try to get custom separator
+        try:
+            sep = datadict[inst]['sep']
+        except KeyError:
+            sep = '\t' 
+
         # Read rdb file
-        data = pd.read_csv(datadict[inst]['datafile'], sep='\t',
+        data = pd.read_csv(datadict[inst]['datafile'], sep=sep,
                            comment='#', skiprows=[1,])
         datadict[inst]['data'] = data
+    return
     
