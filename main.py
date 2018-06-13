@@ -103,7 +103,8 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     
     if rundict['sampler'] == 'emcee':
         a = rundict.pop('a', 2.0)
-        ncpus = rundict.pop('threads', 1)
+        ncpus = kwargs.pop('threads', rundict.pop('threads', 1))
+        print('Running with {} cores'.format(ncpus))
         sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
                                         mymodel.logpdf, a=a, threads=ncpus)
         sampler.model = mymodel
