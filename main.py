@@ -248,8 +248,8 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
 
     if multi>1:
         pickle.dump([sampler.chain, sampler.lnprobability,
-                     sampler.acceptance_fraction, sampler.args,
-                     sampler.kwargs], f)
+                     sampler.acceptance_fraction, 
+                     list(sampler.model.priordict.keys()), sampler.model], f)
     else:
         pickle.dump(sampler, f)
     f.close()
