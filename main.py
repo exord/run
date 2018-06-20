@@ -9,11 +9,14 @@ import time
 import emcee
 import cobmcmc
 import PyPolyChord as polychord
+import PyPolyChord.settings as polysettings
 
 from mcmc_general import lnprob
 from emcee.ptsampler import default_beta_ladder
 
 from .config import read_config
+
+HOME = os.getenv('HOME')
 
 def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
 
@@ -288,25 +291,30 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     ndim = len(initdict)
 
     # Define PolyChord settings
-    settings = polychord.settings(ndims, nderived, )
+    settings = polysettings.PolyChordSettings(ndim, nderived, )
     settings.do_clustering = True
     if nlive is None:
         settings.nlive = 20*ndim
     else:
         settings.nlive = nlive
         
-    settings.file_root = rundict['target']+'_2'
+    settings.file_root = rundict['target']+'_'+rundict['runid']
     settings.read_resume = False
-    settings.num_repeats = nDims * 3
+    settings.num_repeats = ndim * 3
     settings.feedback = 1
     settings.precision_criterion = 0.01
+    # base directory
+    base_dir = os.path.join(HOME, 'ExP', rundict['target'], 'polychains')
+    if not os.path.isdir(base_dir):
+        os.makedirs(base_dir)
+    settings.base_dir = os.path.join(base_dir)
 
     # Initialise clocks
     ti = time.clock()
     tw = time.time()
     
     # Run PolyChord
-    output = polychord.run_polychord(loglike, ndims, nderived, settings, prior)
+    output = polychord.run_polychord(loglike, ndim, nderived, settings, prior)
 
     output.runtime = time.clock() - ti
     output.walltime = time.time() - tw
@@ -318,19 +326,15 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     if output.comment != '':
         output.comment = '_'+output.comment
     
-    print(f'\nTotal run time was: {datetime.timedelta(seconds=int(Dt))}')
+    print(f'\nTotal run time was: {datetime.timedelta(seconds=int(output.runtime))}')
+    print(f'Total wall time was: {datetime.timedelta(seconds=int(output.walltime))}')
     print(f'\nlog10(Z) = {output.logZ*0.43429} \n') # Log10 of the evidence
 
-    dum2pickle_poly(output)    
+    dump2pickle_poly(output)    
     
     return output
 
 def dump2pickle_poly(output, savedir=None):
-
-    comment = rundict.get('comment', '')
-
-    if comment != '':
-        comment = '_'+comment
 
     pickledict = {'target': output.target,
                   'runid': output.runid,
@@ -341,7 +345,7 @@ def dump2pickle_poly(output, savedir=None):
 
     if savedir is None:
         pickledir = os.path.join(os.getenv('HOME'), 'ExP',
-                                output['target'], 'samplers')
+                                output.target, 'samplers')
     else:
         pickledir = savedir
 
@@ -353,9 +357,7 @@ def dump2pickle_poly(output, savedir=None):
                           '{target}_{runid}{comm}_{nlive}live_'
                           '_{sampler}_{date}.dat'.format(**pickledict)), 'wb')
     
-    f.dump(output)
+    pickle.dump(output, f)
     f.close()
     return
-
-    
     
