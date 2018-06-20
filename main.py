@@ -8,6 +8,7 @@ import time
 
 import emcee
 import cobmcmc
+import PyPolyChord as polychord
 
 from mcmc_general import lnprob
 from emcee.ptsampler import default_beta_ladder
@@ -254,3 +255,107 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
         pickle.dump(sampler, f)
     f.close()
     return
+
+
+def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
+    
+    # Read dictionaries from configuration file
+    rundict, initdict, datadict, priordict, fixeddict = read_config(
+        configfile)
+    parnames = list(priordict.keys())
+
+    # Import model module
+    modulename = 'model_{target}_{runid}'.format(**rundict)
+    mod = importlib.import_module(modulename)
+
+    # Instantaniate model class (pass additional arguments)
+    mymodel = mod.Model(fixeddict, datadict, priordict, **modelargs)
+
+    # Function to convert from hypercube to physical parameter space
+    def prior(hypercube):
+        """ Priors for each parameter. """
+        theta = []
+        for i, x in enumerate(hypercube):
+            
+            theta.append(priordict[parnames[i]].ppf(x))
+        return theta
+
+    def loglike(x):
+        return (mymodel.lnlike(x), [])
+
+    # Prepare run
+    nderived = 0
+    ndim = len(initdict)
+
+    # Define PolyChord settings
+    settings = polychord.settings(ndims, nderived, )
+    settings.do_clustering = True
+    if nlive is None:
+        settings.nlive = 20*ndim
+    else:
+        settings.nlive = nlive
+        
+    settings.file_root = rundict['target']+'_2'
+    settings.read_resume = False
+    settings.num_repeats = nDims * 3
+    settings.feedback = 1
+    settings.precision_criterion = 0.01
+
+    # Initialise clocks
+    ti = time.clock()
+    tw = time.time()
+    
+    # Run PolyChord
+    output = polychord.run_polychord(loglike, ndims, nderived, settings, prior)
+
+    output.runtime = time.clock() - ti
+    output.walltime = time.time() - tw
+
+    output.target = rundict['target']
+    output.runid = rundict['runid']
+    output.comment = rundict.get('comment', '')
+
+    if output.comment != '':
+        output.comment = '_'+output.comment
+    
+    print(f'\nTotal run time was: {datetime.timedelta(seconds=int(Dt))}')
+    print(f'\nlog10(Z) = {output.logZ*0.43429} \n') # Log10 of the evidence
+
+    dum2pickle_poly(output)    
+    
+    return output
+
+def dump2pickle_poly(output, savedir=None):
+
+    comment = rundict.get('comment', '')
+
+    if comment != '':
+        comment = '_'+comment
+
+    pickledict = {'target': output.target,
+                  'runid': output.runid,
+                  'comm': output.comment,
+                  'nlive': output.nlive, 
+                  'sampler': 'polychord',
+                  'date': datetime.datetime.today().isoformat()}
+
+    if savedir is None:
+        pickledir = os.path.join(os.getenv('HOME'), 'ExP',
+                                output['target'], 'samplers')
+    else:
+        pickledir = savedir
+
+    # Check if path exists; create if not
+    if not os.path.isdir(pickledir):
+        os.makedirs(pickledir)
+
+    f = open(os.path.join(pickledir,
+                          '{target}_{runid}{comm}_{nlive}live_'
+                          '_{sampler}_{date}.dat'.format(**pickledict)), 'wb')
+    
+    f.dump(output)
+    f.close()
+    return
+
+    
+    
