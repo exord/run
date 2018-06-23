@@ -8,8 +8,12 @@ import time
 
 import emcee
 import cobmcmc
-import PyPolyChord as polychord
-import PyPolyChord.settings as polysettings
+
+try:
+    import PyPolyChord as polychord
+    import PyPolyChord.settings as polysettings
+except ModuleNotFoundError:
+    pass
 
 from mcmc_general import lnprob
 from emcee.ptsampler import default_beta_ladder
@@ -355,7 +359,7 @@ def dump2pickle_poly(output, savedir=None):
 
     f = open(os.path.join(pickledir,
                           '{target}_{runid}{comm}_{nlive}live_'
-                          '_{sampler}_{date}.dat'.format(**pickledict)), 'wb')
+                          '{sampler}_{date}.dat'.format(**pickledict)), 'wb')
     
     pickle.dump(output, f)
     f.close()
