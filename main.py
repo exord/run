@@ -294,6 +294,9 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     nderived = 0
     ndim = len(initdict)
 
+    # Fix starting time to identify chain.
+    isodate = datetime.datetime.today().isoformat()
+    
     # Define PolyChord settings
     settings = polysettings.PolyChordSettings(ndim, nderived, )
     settings.do_clustering = True
@@ -302,7 +305,14 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     else:
         settings.nlive = nlive
         
-    settings.file_root = rundict['target']+'_'+rundict['runid']
+    fileroot = rundict['target']+'_'+rundict['runid']
+    if rundict['comment'] != '':
+        fileroot += '_'+rundict['comment']
+        
+    # add date
+    fileroot += isodate
+    
+    settings.file_root = fileroot
     settings.read_resume = False
     settings.num_repeats = ndim * 3
     settings.feedback = 1
