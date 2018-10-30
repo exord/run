@@ -169,7 +169,8 @@ def runmcmc(configfile, nsteps=None, **kwargs):
         sampler.comment = '_'+sampler.comment
 
     # Pickle sampler to file
-    dump2pickle(sampler, rundict.get('sampler', None), multi=ncpus)
+    dump2pickle(sampler, rundict.get('sampler', None), multi=ncpus,
+                savedir=rundict.get('savedir', None))
     return sampler
 
 
