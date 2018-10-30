@@ -301,7 +301,7 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     settings = polysettings.PolyChordSettings(ndim, nderived, )
     settings.do_clustering = True
     if nlive is None:
-        settings.nlive = 20*ndim
+        settings.nlive = 25*ndim
     else:
         settings.nlive = nlive
         
@@ -310,13 +310,13 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
         fileroot += '_'+rundict['comment']
         
     # add date
-    fileroot += isodate
+    fileroot += '_'+isodate
     
     settings.file_root = fileroot
     settings.read_resume = False
-    settings.num_repeats = ndim * 3
+    settings.num_repeats = ndim * 5
     settings.feedback = 1
-    settings.precision_criterion = 0.01
+    settings.precision_criterion = 0.001
     # base directory
     base_dir = os.path.join(HOME, 'ExP', rundict['target'], 'polychains')
     if not os.path.isdir(base_dir):
