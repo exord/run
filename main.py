@@ -32,7 +32,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     rundict, initdict, datadict, priordict, fixeddict = read_config(
         configfile)
 
-    # Read lnlike and lnprior functions from specific target module.
+    # Load specific target module.
     modulename = 'model_{target}_{runid}'.format(**rundict)
     mod = importlib.import_module(modulename)
 
