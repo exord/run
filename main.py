@@ -5,8 +5,10 @@ import importlib
 import datetime
 import pickle
 import time
+from multiprocessing import Pool
 
 import emcee
+import emcee3
 import cobmcmc
 
 try:
@@ -44,17 +46,6 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     # Instantaniate model class (pass additional arguments)
     mymodel = mod.Model(fixeddict, datadict, priordict, **modelargs)
     
-# =============================================================================
-#     # Preprocess data if a preprocess function exists in module
-#     # Return new arguments for lnpostfn
-#     if 'preprocess' in dir(mod) and hasattr(mod.preprocess, '__call__'):
-#         newargs = mod.preprocess(rundict, initdict, datadict, priordict,
-#                                  fixeddict)
-# 
-#     else:
-#         newargs = []
-# =============================================================================
-
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
     if initfromsampler is not None:
@@ -92,46 +83,47 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
         for par in ipars:
             if par in initdict:
                 initdict[par] = pn[:, ipars.index(par)]
-
-# =============================================================================
-#     # Prepare list of arguments for lnlike and lnprior function
-#     lnlikeargs = [fixeddict, datadict]
-#     lnpriorargs = [priordict,]
-# 
-#     # Add new arguments from preprocessing
-#     for arglist in [lnlikeargs, lnpriorargs]:
-#         arglist.extend(newargs)
-# 
-#     lnprobargs = [list(initdict.keys()), mod.lnlike, mod.lnprior]
-#     lnprobkwargs = {'lnlikeargs': lnlikeargs,
-#                     'lnpriorargs': lnpriorargs,
-#                     'lnlikekwargs': {}}
-# 
-# =============================================================================
     
     if rundict['sampler'] == 'emcee':
+        # Kept for backwards compatibility with emcee 2
         a = rundict.pop('a', 2.0)
         ncpus = kwargs.pop('threads', rundict.pop('threads', 1))
         print('Running with {} cores'.format(ncpus))
         sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
                                         mymodel.logpdf, a=a, threads=ncpus)
         sampler.model = mymodel
-
+        
+        # Adapt attributes to new emcee3
+        sampler.iteration = sampler.iterations
+        sampler.nwalkers = sampler.k
+        
+    elif rundict['sampler'] == 'emcee3':
+        # Create moves
+        emceemoves = []
+        for move in rundict.pop('moves', [[2.0, 1.0]]):
+            # Each move has a scale and a weight
+            scale, w = move
+            emceemoves.append((emcee3.moves.StretchMove(a=scale), w))
+        
+        # Adapt threads input to new emcee3 pool argument.
+        ncpus = kwargs.pop('threads', rundict.pop('threads', 1))
+        if ncpus > 1:
+            os.environ["OMP_NUM_THREADS"] = "1"
+            pp = Pool(ncpus)
+            print('Running with {} cores'.format(ncpus))
+        else:
+            pp = None
+            
+        sampler = emcee3.EnsembleSampler(rundict['nwalkers'], 
+                                         len(priordict), mymodel.logpdf, 
+                                         moves=emceemoves, pool=pp)
+        sampler.model = mymodel
+            
     elif rundict['sampler'] == 'PTSampler':
         a = rundict.pop('a', 2.0)
         ntemps = rundict.pop('ntemps', None)
         tmax = rundict.pop('Tmax', None)
         
-# =============================================================================
-#         # Construct argument lists
-#         # for log likelihood
-#         loglargs = [list(initdict.keys()), ]
-#         loglargs.extend(lnprobkwargs['lnlikeargs'])
-#         # and for logprior
-#         logpargs = [list(initdict.keys()), ]
-#         logpargs.extend(lnprobkwargs['lnpriorargs'])
-#         
-# =============================================================================
         sampler = emcee.PTSampler(ntemps, rundict['nwalkers'], len(priordict),
                                   logl=mymodel.lnlike, logp=mymodel.lnprior,
                                   Tmax=tmax)
@@ -143,6 +135,9 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
                                                npca=rundict['npca'],
                                                nupdatepca=rundict['nupdatepca']
                                                )
+        
+        sampler.nwalkers = 1
+        sampler.iteration = sampler.k
 
     else:
         raise NameError('Unknown sampler: {}'.format(rundict['sampler']))
@@ -164,14 +159,14 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     # Special treatment for PTSampler
     if rundict['sampler'] == 'PTSampler':
         p0 = np.repeat(p0[np.newaxis, :, :], len(sampler.betas), axis=0)
-        sampler.k = sampler.nwalkers
-        sampler.iterations = nsteps
+        
+        sampler.iteration = nsteps
 
     if counttime:
         ti = time.clock()
         tw = time.time()
     # ## MAIN MCMC RUN ##
-    sampler.run_mcmc(p0, nsteps)
+    sampler.run_mcmc(p0, nsteps, progress=True)
 
     # Add times to sampler
     sampler.runtime = time.clock() - ti
@@ -197,8 +192,9 @@ def continuemcmc(samplerfile, nsteps, newsampler=False):
     f.close()
 
     import emcee
+    import emcee3
     import cobmcmc
-    if isinstance(sampler, emcee.EnsembleSampler):
+    if isinstance(sampler, (emcee.EnsembleSampler, emcee3.EnsembleSampler)):
         # Produce starting point from last point in chain.
         p0 = sampler.chain[:, -1, :]
 
@@ -225,18 +221,23 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
     if sampleralgo is None:
         sampleralgo = ''
 
-    if isinstance(sampler, emcee.PTSampler):
+    if isinstance(sampler, (emcee3.EnsembleSampler, emcee.PTSampler)):
         nwalk = sampler.nwalkers
+        nstep = sampler.iteration
+        
     elif isinstance(sampler, emcee.EnsembleSampler):
         nwalk = sampler.k
-    elif isinstance(sampler, cobmcmc.ChangeofBasisSampler):
+        nstep = sampler.iterations
+        
+    elif isinstance(sampler, cobmcmc.ChangeOfBasisSampler):
         nwalk = 1
+        nstep = sampler.k
         
     pickledict = {'target': sampler.target,
                   'runid': sampler.runid,
                   'comm': sampler.comment,
-                  'nwalk': nwalk,
-                  'nstep': sampler.iterations,
+                  'nwalk': sampler.nwalkers,
+                  'nstep': sampler.iteration,
                   'sampler': sampleralgo,
                   'date': datetime.datetime.today().isoformat()}
 
