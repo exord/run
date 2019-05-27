@@ -49,19 +49,23 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
     if initfromsampler is not None:
-        isampler = pickle.load(open(initfromsampler))
+        f = open(initfromsampler, 'rb')
+        isampler = pickle.load(f)
+        f.close()
 
-        if isinstance(isampler, (emcee.Sampler, cobmcmc.Sampler)):
+        if isinstance(isampler, (emcee.Sampler, emcee3.EnsembleSampler,
+                                 cobmcmc.Sampler)):
             initchain = isampler.chain
             ipars = isampler.args[0]
         elif isinstance(isampler[0], np.ndarray):
             initchain = isampler[0]
-            ipars = isampler[-2][0]
-            
+            ipars = isampler[-2]
+        
         if uselaststep:
             
             if rundict['nwalkers'] > initchain.shape[0]:
-                raise ValueError('Cannot use last step. Init sampler has less walkers than current sampler.')
+                raise ValueError('Cannot use last step. Init sampler has less '
+                                 'walkers than current sampler.')
             elif rundict['nwalkers'] == initchain.shape[0]:
                 # Pick last element from chain
                 pn = initchain[:, -1, :]
@@ -210,6 +214,13 @@ def continuemcmc(samplerfile, nsteps, newsampler=False):
     elif isinstance(sampler, cobmcmc.ChangeofBasisSampler):
         sampler.run_mcmc(nsteps)
         sampleralgo = 'cobmcmc'
+        
+    # If done with multicore
+    elif isinstance(sampler, list):
+        # Take last point in chain
+        p0 = sampler[0][:, -1, :]
+        
+        
 
     # Pickle sampler to file
     dump2pickle(sampler, sampleralgo, multi=sampler.threads)
@@ -221,18 +232,20 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
     if sampleralgo is None:
         sampleralgo = ''
 
-    if isinstance(sampler, (emcee3.EnsembleSampler, emcee.PTSampler)):
-        nwalk = sampler.nwalkers
-        nstep = sampler.iteration
-        
-    elif isinstance(sampler, emcee.EnsembleSampler):
-        nwalk = sampler.k
-        nstep = sampler.iterations
-        
-    elif isinstance(sampler, cobmcmc.ChangeOfBasisSampler):
-        nwalk = 1
-        nstep = sampler.k
-        
+# =============================================================================
+#     if isinstance(sampler, (emcee3.EnsembleSampler, emcee.PTSampler)):
+#         nwalk = sampler.nwalkers
+#         nstep = sampler.iteration
+#         
+#     elif isinstance(sampler, emcee.EnsembleSampler):
+#         nwalk = sampler.k
+#         nstep = sampler.iterations
+#         
+#     elif isinstance(sampler, cobmcmc.ChangeOfBasisSampler):
+#         nwalk = 1
+#         nstep = sampler.k
+# =============================================================================
+    
     pickledict = {'target': sampler.target,
                   'runid': sampler.runid,
                   'comm': sampler.comment,
