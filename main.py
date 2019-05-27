@@ -9,12 +9,20 @@ import time
 import emcee
 import cobmcmc
 
+try:
+    import PyPolyChord as polychord
+    import PyPolyChord.settings as polysettings
+except ModuleNotFoundError:
+    pass
+
 from mcmc_general import lnprob
 from emcee.ptsampler import default_beta_ladder
 
 from .config import read_config
 
-def runmcmc(configfile, nsteps=None, **kwargs):
+HOME = os.getenv('HOME')
+
+def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
 
     initfromsampler = kwargs.pop('initsampler', None)
     uselaststep = kwargs.pop('uselaststep', False)
@@ -24,7 +32,7 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     rundict, initdict, datadict, priordict, fixeddict = read_config(
         configfile)
 
-    # Read lnlike and lnprior functions from specific target module.
+    # Load specific target module.
     modulename = 'model_{target}_{runid}'.format(**rundict)
     mod = importlib.import_module(modulename)
 
@@ -33,14 +41,19 @@ def runmcmc(configfile, nsteps=None, **kwargs):
     elif sys.version_info[0] == 3:
         importlib.reload(mod)
 
-    # Preprocess data if a preprocess function exists in module
-    # Return new arguments for lnpostfn
-    if 'preprocess' in dir(mod) and hasattr(mod.preprocess, '__call__'):
-        newargs = mod.preprocess(rundict, initdict, datadict, priordict,
-                                 fixeddict)
-
-    else:
-        newargs = []
+    # Instantaniate model class (pass additional arguments)
+    mymodel = mod.Model(fixeddict, datadict, priordict, **modelargs)
+    
+# =============================================================================
+#     # Preprocess data if a preprocess function exists in module
+#     # Return new arguments for lnpostfn
+#     if 'preprocess' in dir(mod) and hasattr(mod.preprocess, '__call__'):
+#         newargs = mod.preprocess(rundict, initdict, datadict, priordict,
+#                                  fixeddict)
+# 
+#     else:
+#         newargs = []
+# =============================================================================
 
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
@@ -80,52 +93,56 @@ def runmcmc(configfile, nsteps=None, **kwargs):
             if par in initdict:
                 initdict[par] = pn[:, ipars.index(par)]
 
-    # Prepare list of arguments for lnlike and lnprior function
-    lnlikeargs = [fixeddict, datadict]
-    lnpriorargs = [priordict,]
-
-    # Add new arguments from preprocessing
-    for arglist in [lnlikeargs, lnpriorargs]:
-        arglist.extend(newargs)
-
-    lnprobargs = [list(initdict.keys()), mod.lnlike, mod.lnprior]
-    lnprobkwargs = {'lnlikeargs': lnlikeargs,
-                    'lnpriorargs': lnpriorargs,
-                    'lnlikekwargs': {}}
-
+# =============================================================================
+#     # Prepare list of arguments for lnlike and lnprior function
+#     lnlikeargs = [fixeddict, datadict]
+#     lnpriorargs = [priordict,]
+# 
+#     # Add new arguments from preprocessing
+#     for arglist in [lnlikeargs, lnpriorargs]:
+#         arglist.extend(newargs)
+# 
+#     lnprobargs = [list(initdict.keys()), mod.lnlike, mod.lnprior]
+#     lnprobkwargs = {'lnlikeargs': lnlikeargs,
+#                     'lnpriorargs': lnpriorargs,
+#                     'lnlikekwargs': {}}
+# 
+# =============================================================================
+    
     if rundict['sampler'] == 'emcee':
         a = rundict.pop('a', 2.0)
-        ncpus = rundict.pop('threads', 1)
+        ncpus = kwargs.pop('threads', rundict.pop('threads', 1))
+        print('Running with {} cores'.format(ncpus))
         sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
-                                        lnprob, args=lnprobargs,
-                                        kwargs=lnprobkwargs, a=a,
-                                        threads=ncpus)
+                                        mymodel.logpdf, a=a, threads=ncpus)
+        sampler.model = mymodel
 
     elif rundict['sampler'] == 'PTSampler':
         a = rundict.pop('a', 2.0)
         ntemps = rundict.pop('ntemps', None)
         tmax = rundict.pop('Tmax', None)
         
-        # Construct argument lists
-        # for log likelihood
-        loglargs = [list(initdict.keys()), ]
-        loglargs.extend(lnprobkwargs['lnlikeargs'])
-        # and for logprior
-        logpargs = [list(initdict.keys()), ]
-        logpargs.extend(lnprobkwargs['lnpriorargs'])
-        
+# =============================================================================
+#         # Construct argument lists
+#         # for log likelihood
+#         loglargs = [list(initdict.keys()), ]
+#         loglargs.extend(lnprobkwargs['lnlikeargs'])
+#         # and for logprior
+#         logpargs = [list(initdict.keys()), ]
+#         logpargs.extend(lnprobkwargs['lnpriorargs'])
+#         
+# =============================================================================
         sampler = emcee.PTSampler(ntemps, rundict['nwalkers'], len(priordict),
-                                  logl=mod.lnlike, logp=mod.lnprior,
-                                  Tmax=tmax,
-                                  loglargs=loglargs,
-                                  logpargs=logpargs)
+                                  logl=mymodel.lnlike, logp=mymodel.lnprior,
+                                  Tmax=tmax)
         
     elif rundict['sampler'] == 'cobmcmc':
-        sampler = cobmcmc.ChangeofBasisSampler(len(priordict), lnprob,
-                                               lnprobargs, lnprobkwargs,
+        sampler = cobmcmc.ChangeofBasisSampler(len(priordict), mymodel.logpdf,
+                                               [], {},
                                                startpca=rundict['startpca'],
                                                npca=rundict['npca'],
-                                               nupdatepca=rundict['nupdatepca'])
+                                               nupdatepca=rundict['nupdatepca']
+                                               )
 
     else:
         raise NameError('Unknown sampler: {}'.format(rundict['sampler']))
@@ -240,9 +257,122 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
 
     if multi>1:
         pickle.dump([sampler.chain, sampler.lnprobability,
-                     sampler.acceptance_fraction, sampler.args,
-                     sampler.kwargs], f)
+                     sampler.acceptance_fraction, 
+                     list(sampler.model.priordict.keys()), sampler.model], f)
     else:
         pickle.dump(sampler, f)
     f.close()
     return
+
+
+def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
+    
+    # Read dictionaries from configuration file
+    rundict, initdict, datadict, priordict, fixeddict = read_config(
+        configfile)
+    parnames = list(priordict.keys())
+
+    # Import model module
+    modulename = 'model_{target}_{runid}'.format(**rundict)
+    mod = importlib.import_module(modulename)
+
+    # Instantaniate model class (pass additional arguments)
+    mymodel = mod.Model(fixeddict, datadict, priordict, **modelargs)
+
+    # Function to convert from hypercube to physical parameter space
+    def prior(hypercube):
+        """ Priors for each parameter. """
+        theta = []
+        for i, x in enumerate(hypercube):
+            
+            theta.append(priordict[parnames[i]].ppf(x))
+        return theta
+
+    def loglike(x):
+        return (mymodel.lnlike(x), [])
+
+    # Prepare run
+    nderived = 0
+    ndim = len(initdict)
+
+    # Fix starting time to identify chain.
+    isodate = datetime.datetime.today().isoformat()
+    
+    # Define PolyChord settings
+    settings = polysettings.PolyChordSettings(ndim, nderived, )
+    settings.do_clustering = True
+    if nlive is None:
+        settings.nlive = 25*ndim
+    else:
+        settings.nlive = nlive
+        
+    fileroot = rundict['target']+'_'+rundict['runid']
+    if rundict['comment'] != '':
+        fileroot += '_'+rundict['comment']
+        
+    # add date
+    fileroot += '_'+isodate
+    
+    settings.file_root = fileroot
+    settings.read_resume = False
+    settings.num_repeats = ndim * 5
+    settings.feedback = 1
+    settings.precision_criterion = 0.001
+    # base directory
+    base_dir = os.path.join(HOME, 'ExP', rundict['target'], 'polychains')
+    if not os.path.isdir(base_dir):
+        os.makedirs(base_dir)
+    settings.base_dir = os.path.join(base_dir)
+
+    # Initialise clocks
+    ti = time.clock()
+    tw = time.time()
+    
+    # Run PolyChord
+    output = polychord.run_polychord(loglike, ndim, nderived, settings, prior)
+
+    output.runtime = time.clock() - ti
+    output.walltime = time.time() - tw
+
+    output.target = rundict['target']
+    output.runid = rundict['runid']
+    output.comment = rundict.get('comment', '')
+
+    if output.comment != '':
+        output.comment = '_'+output.comment
+    
+    print(f'\nTotal run time was: {datetime.timedelta(seconds=int(output.runtime))}')
+    print(f'Total wall time was: {datetime.timedelta(seconds=int(output.walltime))}')
+    print(f'\nlog10(Z) = {output.logZ*0.43429} \n') # Log10 of the evidence
+
+    dump2pickle_poly(output)    
+    
+    return output
+
+def dump2pickle_poly(output, savedir=None):
+
+    pickledict = {'target': output.target,
+                  'runid': output.runid,
+                  'comm': output.comment,
+                  'nlive': output.nlive, 
+                  'sampler': 'polychord',
+                  'date': datetime.datetime.today().isoformat()}
+
+    if savedir is None:
+        pickledir = os.path.join(os.getenv('HOME'), 'ExP',
+                                output.target, 'samplers')
+    else:
+        pickledir = savedir
+
+    # Check if path exists; create if not
+    if not os.path.isdir(pickledir):
+        os.makedirs(pickledir)
+
+    f = open(os.path.join(pickledir,
+                          '{target}_{runid}{comm}_{nlive}live_'
+                          '{sampler}_{date}.dat'.format(**pickledict)), 'wb')
+    
+    pickle.dump(output, f)
+    f.close()
+    return
+    
