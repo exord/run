@@ -7,15 +7,20 @@ import pickle
 import time
 from multiprocessing import Pool
 
+try:
+    if sys.version_info[0] == 3:
+        import pypolychord as polychord
+        import pypolychord.settings as polysettings
+    elif sys.version_info[0] == 2:
+        import PyPolyChord as polychord
+        import PyPolyChord.settings as polysettings
+except ModuleNotFoundError:
+    print('Warninig! Polychord not installed!')
+    pass
+
 import emcee
 import emcee3
 import cobmcmc
-
-try:
-    import PyPolyChord as polychord
-    import PyPolyChord.settings as polysettings
-except ModuleNotFoundError:
-    pass
 
 # from mcmc_general import lnprob
 # from emcee.ptsampler import default_beta_ladder
@@ -30,6 +35,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     initfromsampler = kwargs.pop('initsampler', None)
     uselaststep = kwargs.pop('uselaststep', False)
     counttime = kwargs.pop('time', True)
+    thin = kwargs.pop('thin', 1)
 
     # Read dictionaries from configuration file
     rundict, initdict, datadict, priordict, fixeddict = read_config(
@@ -50,20 +56,23 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
     if initfromsampler is not None:
-        isampler = pickle.load(open(initfromsampler))
+        f = open(initfromsampler, 'rb')
+        isampler = pickle.load(f)
+        f.close()
 
-        if isinstance(isampler, (emcee.Sampler, cobmcmc.Sampler)):
+        if isinstance(isampler, (emcee.Sampler, emcee3.EnsembleSampler,
+                                 cobmcmc.Sampler)):
             initchain = isampler.chain
             ipars = isampler.args[0]
         elif isinstance(isampler[0], np.ndarray):
             initchain = isampler[0]
-            ipars = isampler[-2][0]
+            ipars = isampler[-2]
 
         if uselaststep:
 
             if rundict['nwalkers'] > initchain.shape[0]:
-                raise ValueError('Cannot use last step. Init sampler has '
-                                 'less walkers than current sampler.')
+                raise ValueError('Cannot use last step. Init sampler has less '
+                                 'walkers than current sampler.')
             elif rundict['nwalkers'] == initchain.shape[0]:
                 # Pick last element from chain
                 pn = initchain[:, -1, :]
@@ -151,6 +160,8 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     elif nsteps is None:
         nsteps = rundict['nsteps']
 
+    # BEWARE IF thin > 1, nsteps * thin iterations will be done
+
     # Starting point.
     p0 = np.array(list(initdict.values())).T
 
@@ -168,7 +179,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
         ti = time.clock()
         tw = time.time()
     # ## MAIN MCMC RUN ##
-    sampler.run_mcmc(p0, nsteps, progress=True)
+    sampler.run_mcmc(p0, nsteps, progress=True, thin_by=thin)
 
     # Add times to sampler
     sampler.runtime = time.clock() - ti
@@ -177,6 +188,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     sampler.runid = rundict['runid']
     sampler.target = rundict['target']
     sampler.comment = rundict.get('comment', '')
+    sampler.thin = thin
     sampler.part = 1
 
     if sampler.comment != '':
@@ -213,6 +225,11 @@ def continuemcmc(samplerfile, nsteps, newsampler=False):
         sampler.run_mcmc(nsteps)
         sampleralgo = 'cobmcmc'
 
+    # If done with multicore
+    elif isinstance(sampler, list):
+        # Take last point in chain
+        p0 = sampler[0][:, -1, :]
+
     # Pickle sampler to file
     dump2pickle(sampler, sampleralgo, multi=sampler.threads)
     return sampler
@@ -223,24 +240,27 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
     if sampleralgo is None:
         sampleralgo = ''
 
-    if isinstance(sampler, (emcee3.EnsembleSampler, emcee.PTSampler)):
-        nwalk = sampler.nwalkers
-        nstep = sampler.iteration
-
-    elif isinstance(sampler, emcee.EnsembleSampler):
-        nwalk = sampler.k
-        nstep = sampler.iterations
-
-    elif isinstance(sampler, cobmcmc.ChangeOfBasisSampler):
-        nwalk = 1
-        nstep = sampler.k
+# =============================================================================
+#     if isinstance(sampler, (emcee3.EnsembleSampler, emcee.PTSampler)):
+#         nwalk = sampler.nwalkers
+#         nstep = sampler.iteration
+#
+#     elif isinstance(sampler, emcee.EnsembleSampler):
+#         nwalk = sampler.k
+#         nstep = sampler.iterations
+#
+#     elif isinstance(sampler, cobmcmc.ChangeOfBasisSampler):
+#         nwalk = 1
+#         nstep = sampler.k
+# =============================================================================
 
     pickledict = {'target': sampler.target,
                   'runid': sampler.runid,
                   'comm': sampler.comment,
-                  'nwalk': nwalk,
-                  'nstep': nstep,
+                  'nwalk': sampler.nwalkers,
+                  'nstep': sampler.iteration,
                   'sampler': sampleralgo,
+                  'thin': sampler.thin,
                   'date': datetime.datetime.today().isoformat()}
 
     if savedir is None:
@@ -255,8 +275,8 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
 
     f = open(os.path.join(pickledir,
                           '{target}_{runid}{comm}_{nwalk}walkers_'
-                          '{nstep}steps_{sampler}_{date}.dat'.format(
-                              **pickledict)), 'wb')
+                          '{nstep}steps_thin{thin}_{sampler}_{date}.dat'
+                          ''.format(**pickledict)), 'wb')
 
     if multi > 1:
         pickle.dump([sampler.chain, sampler.lnprobability,
@@ -304,10 +324,9 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     # Define PolyChord settings
     settings = polysettings.PolyChordSettings(ndim, nderived, )
     settings.do_clustering = True
-    if nlive is None:
-        settings.nlive = 25*ndim
-    else:
-        settings.nlive = nlive
+
+    #  If None, it will default to ndim * 25
+    settings.nlive = nlive
 
     fileroot = rundict['target']+'_'+rundict['runid']
     if rundict['comment'] != '':
@@ -344,11 +363,9 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     if output.comment != '':
         output.comment = '_'+output.comment
 
-    print(f'\nTotal run time was: {datetime.timedelta(seconds=int(output.runtime))}')
-    print(f'Total wall time was: {datetime.timedelta(seconds=int(output.walltime))}')
-    print(f'\nlog10(Z) = {output.logZ*0.43429} \n')  # Log10 of the evidence
-
-    dump2pickle_poly(output)
+    print('\nTotal run time was: {}'.format(datetime.timedelta(seconds=int(output.runtime))))
+    print('Total wall time was: {}'.format(datetime.timedelta(seconds=int(output.walltime))))
+    print('\nlog10(Z) = {:.4f}} \n'.format(output.logZ*0.43429)) # Log10 of the evidence
 
     return output
 
