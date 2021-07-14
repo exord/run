@@ -17,12 +17,13 @@ try:
 except ModuleNotFoundError:
     pass
 
-from mcmc_general import lnprob
-from emcee.ptsampler import default_beta_ladder
+# from mcmc_general import lnprob
+# from emcee.ptsampler import default_beta_ladder
 
 from .config import read_config
 
 HOME = os.getenv('HOME')
+
 
 def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
 
@@ -45,7 +46,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
 
     # Instantaniate model class (pass additional arguments)
     mymodel = mod.Model(fixeddict, datadict, priordict, **modelargs)
-    
+
     # If initfromsampler given, use it to create starting point for
     # chain. Overrides machinery in config module
     if initfromsampler is not None:
@@ -57,11 +58,12 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
         elif isinstance(isampler[0], np.ndarray):
             initchain = isampler[0]
             ipars = isampler[-2][0]
-            
+
         if uselaststep:
-            
+
             if rundict['nwalkers'] > initchain.shape[0]:
-                raise ValueError('Cannot use last step. Init sampler has less walkers than current sampler.')
+                raise ValueError('Cannot use last step. Init sampler has '
+                                 'less walkers than current sampler.')
             elif rundict['nwalkers'] == initchain.shape[0]:
                 # Pick last element from chain
                 pn = initchain[:, -1, :]
@@ -70,20 +72,20 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
                 ind = np.random.choice(np.arange(0, initchain.shape[0]),
                                        size=rundict['nwalkers'], replace=False)
                 pn = initchain[ind, -1, :]
-                
+
         else:
             # Pick nwalker random samples from chain
             ind = np.random.choice(np.arange(0, initchain.shape[1]),
                                    size=rundict['nwalkers'], replace=True)
-            indc = np.random.randint(initchain.shape[0], 
-                                     size=rundict['nwalkers']) 
+            indc = np.random.randint(initchain.shape[0],
+                                     size=rundict['nwalkers'])
             pn = initchain[indc, ind, :]
 
         # Overwrite values from initdict for those parameters in common.
         for par in ipars:
             if par in initdict:
                 initdict[par] = pn[:, ipars.index(par)]
-    
+
     if rundict['sampler'] == 'emcee':
         # Kept for backwards compatibility with emcee 2
         a = rundict.pop('a', 2.0)
@@ -92,11 +94,11 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
         sampler = emcee.EnsembleSampler(rundict['nwalkers'], len(priordict),
                                         mymodel.logpdf, a=a, threads=ncpus)
         sampler.model = mymodel
-        
+
         # Adapt attributes to new emcee3
         sampler.iteration = sampler.iterations
         sampler.nwalkers = sampler.k
-        
+
     elif rundict['sampler'] == 'emcee3':
         # Create moves
         emceemoves = []
@@ -104,7 +106,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
             # Each move has a scale and a weight
             scale, w = move
             emceemoves.append((emcee3.moves.StretchMove(a=scale), w))
-        
+
         # Adapt threads input to new emcee3 pool argument.
         ncpus = kwargs.pop('threads', rundict.pop('threads', 1))
         if ncpus > 1:
@@ -113,21 +115,21 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
             print('Running with {} cores'.format(ncpus))
         else:
             pp = None
-            
-        sampler = emcee3.EnsembleSampler(rundict['nwalkers'], 
-                                         len(priordict), mymodel.logpdf, 
+
+        sampler = emcee3.EnsembleSampler(rundict['nwalkers'],
+                                         len(priordict), mymodel.logpdf,
                                          moves=emceemoves, pool=pp)
         sampler.model = mymodel
-            
+
     elif rundict['sampler'] == 'PTSampler':
         a = rundict.pop('a', 2.0)
         ntemps = rundict.pop('ntemps', None)
         tmax = rundict.pop('Tmax', None)
-        
+
         sampler = emcee.PTSampler(ntemps, rundict['nwalkers'], len(priordict),
                                   logl=mymodel.lnlike, logp=mymodel.lnprior,
                                   Tmax=tmax)
-        
+
     elif rundict['sampler'] == 'cobmcmc':
         sampler = cobmcmc.ChangeofBasisSampler(len(priordict), mymodel.logpdf,
                                                [], {},
@@ -135,7 +137,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
                                                npca=rundict['npca'],
                                                nupdatepca=rundict['nupdatepca']
                                                )
-        
+
         sampler.nwalkers = 1
         sampler.iteration = sampler.k
 
@@ -159,7 +161,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     # Special treatment for PTSampler
     if rundict['sampler'] == 'PTSampler':
         p0 = np.repeat(p0[np.newaxis, :, :], len(sampler.betas), axis=0)
-        
+
         sampler.iteration = nsteps
 
     if counttime:
@@ -171,7 +173,7 @@ def runmcmc(configfile, nsteps=None, modelargs={}, **kwargs):
     # Add times to sampler
     sampler.runtime = time.clock() - ti
     sampler.walltime = time.time() - tw
-    
+
     sampler.runid = rundict['runid']
     sampler.target = rundict['target']
     sampler.comment = rundict.get('comment', '')
@@ -224,26 +226,26 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
     if isinstance(sampler, (emcee3.EnsembleSampler, emcee.PTSampler)):
         nwalk = sampler.nwalkers
         nstep = sampler.iteration
-        
+
     elif isinstance(sampler, emcee.EnsembleSampler):
         nwalk = sampler.k
         nstep = sampler.iterations
-        
+
     elif isinstance(sampler, cobmcmc.ChangeOfBasisSampler):
         nwalk = 1
         nstep = sampler.k
-        
+
     pickledict = {'target': sampler.target,
                   'runid': sampler.runid,
                   'comm': sampler.comment,
-                  'nwalk': sampler.nwalkers,
-                  'nstep': sampler.iteration,
+                  'nwalk': nwalk,
+                  'nstep': nstep,
                   'sampler': sampleralgo,
                   'date': datetime.datetime.today().isoformat()}
 
     if savedir is None:
         pickledir = os.path.join(os.getenv('HOME'), 'ExP',
-                                pickledict['target'], 'samplers')
+                                 pickledict['target'], 'samplers')
     else:
         pickledir = savedir
 
@@ -256,9 +258,9 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
                           '{nstep}steps_{sampler}_{date}.dat'.format(
                               **pickledict)), 'wb')
 
-    if multi>1:
+    if multi > 1:
         pickle.dump([sampler.chain, sampler.lnprobability,
-                     sampler.acceptance_fraction, 
+                     sampler.acceptance_fraction,
                      list(sampler.model.priordict.keys()), sampler.model], f)
     else:
         pickle.dump(sampler, f)
@@ -267,7 +269,7 @@ def dump2pickle(sampler, sampleralgo='emcee', multi=1, savedir=None):
 
 
 def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
-    
+
     # Read dictionaries from configuration file
     rundict, initdict, datadict, priordict, fixeddict = read_config(
         configfile)
@@ -285,7 +287,7 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
         """ Priors for each parameter. """
         theta = []
         for i, x in enumerate(hypercube):
-            
+
             theta.append(priordict[parnames[i]].ppf(x))
         return theta
 
@@ -298,7 +300,7 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
 
     # Fix starting time to identify chain.
     isodate = datetime.datetime.today().isoformat()
-    
+
     # Define PolyChord settings
     settings = polysettings.PolyChordSettings(ndim, nderived, )
     settings.do_clustering = True
@@ -306,14 +308,14 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
         settings.nlive = 25*ndim
     else:
         settings.nlive = nlive
-        
+
     fileroot = rundict['target']+'_'+rundict['runid']
     if rundict['comment'] != '':
         fileroot += '_'+rundict['comment']
-        
+
     # add date
     fileroot += '_'+isodate
-    
+
     settings.file_root = fileroot
     settings.read_resume = False
     settings.num_repeats = ndim * 5
@@ -328,7 +330,7 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
     # Initialise clocks
     ti = time.clock()
     tw = time.time()
-    
+
     # Run PolyChord
     output = polychord.run_polychord(loglike, ndim, nderived, settings, prior)
 
@@ -341,27 +343,28 @@ def runpoly(configfile, nlive=None, modelargs={}, **kwargs):
 
     if output.comment != '':
         output.comment = '_'+output.comment
-    
+
     print(f'\nTotal run time was: {datetime.timedelta(seconds=int(output.runtime))}')
     print(f'Total wall time was: {datetime.timedelta(seconds=int(output.walltime))}')
-    print(f'\nlog10(Z) = {output.logZ*0.43429} \n') # Log10 of the evidence
+    print(f'\nlog10(Z) = {output.logZ*0.43429} \n')  # Log10 of the evidence
 
-    dump2pickle_poly(output)    
-    
+    dump2pickle_poly(output)
+
     return output
+
 
 def dump2pickle_poly(output, savedir=None):
 
     pickledict = {'target': output.target,
                   'runid': output.runid,
                   'comm': output.comment,
-                  'nlive': output.nlive, 
+                  'nlive': output.nlive,
                   'sampler': 'polychord',
                   'date': datetime.datetime.today().isoformat()}
 
     if savedir is None:
         pickledir = os.path.join(os.getenv('HOME'), 'ExP',
-                                output.target, 'samplers')
+                                 output.target, 'samplers')
     else:
         pickledir = savedir
 
@@ -372,8 +375,7 @@ def dump2pickle_poly(output, savedir=None):
     f = open(os.path.join(pickledir,
                           '{target}_{runid}{comm}_{nlive}live_'
                           '{sampler}_{date}.dat'.format(**pickledict)), 'wb')
-    
+
     pickle.dump(output, f)
     f.close()
     return
-    
