@@ -4,6 +4,7 @@ import pandas as pd
 
 from MCMC import priors
 
+
 def read_config(configfile):
     """
     Initialises a sampler object using parameters in config.
@@ -19,10 +20,10 @@ def read_config(configfile):
 
     # Create prior instances
     priordict = priors.prior_constructor(input_dict, {})
-    
+
     # Build list of parameter names
     # parnames, fixparnames = get_parnames(input_dict)
-    
+
     # Read data from file(s)
     read_data(c.datadict)
 
@@ -49,7 +50,7 @@ def read_config(configfile):
 
     # Another hacky way to pass desired number of steps
     sam.nsteps = rundict.pop('nsteps', None)
-    """    
+    """
     return rundict, initial_values, datadict, priordict, fixedpardict
 
 def get_parnames(input_dict):
@@ -89,7 +90,7 @@ def draw_initial_values(input_dict, priordict, nwalkers=1):
             # For emcee cannot start all walkers exactly at the same place
             # or that parameter will never evolve. Add "noise".
             parlist = input_dict[obj][par]
-            
+
             try:
                 scale = parlist[3]
             except IndexError:
@@ -101,26 +102,26 @@ def draw_initial_values(input_dict, priordict, nwalkers=1):
                     scale = parlist[2][1] * 0.05
                 else:
                     print(parlist)
-            p0  = (np.full(nwalkers, parlist[0]) +
-                   np.random.randn(nwalkers) * scale)
+            p0 = (np.full(nwalkers, parlist[0])
+                  + np.random.randn(nwalkers) * scale)
             del(scale)
         else:
             continue
             # raise ValueError('Ilegal flag for parameter.')
         initial_values[fullpar] = p0
     return initial_values
-    
+
+
 def read_data(datadict):
     for inst in datadict:
         # Try to get custom separator
         try:
             sep = datadict[inst]['sep']
         except KeyError:
-            sep = '\t' 
+            sep = '\t'
 
         # Read rdb file
         data = pd.read_csv(datadict[inst]['datafile'], sep=sep,
-                           comment='#', skiprows=[1,])
+                           comment='#', skiprows=[1, ])
         datadict[inst]['data'] = data
     return
-    
